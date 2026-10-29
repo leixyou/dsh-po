@@ -1,6 +1,6 @@
 {
   "name": "dsh-po",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DeepSeek Harness 破甲插件（纯 cordis 实现）：config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写任何 @deepseek-ai 源文件。DeepSeek Harness jailbreak as a pure cordis plugin — no patching of @deepseek-ai packages.",
   "type": "module",
   "main": "lib/index.js",
