@@ -1,0 +1,83 @@
+# dsh-po bundle patch
+#
+# 「破甲」全部通过官方 cordis patch 层的 id 级 config 覆盖 +
+# lib/index.js 的运行时注入实现。
+# 本文件不改写任何磁盘上的包源码。
+
+# ── 1. 去掉 Harness 默认身份与部署人设 ────────────────────────────────
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: ""
+    personaSuffix: ""
+
+# ── 2. 沙箱切到 danger-full-access ─────────────────────────────────────
+#    官方 dsh-bash-sandbox / dsh-fs-sandbox 在 danger-full-access 下直接
+#    unfenced / unconfined，因此无需再 patch 源文件里的 "(deny file-write*)"。
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.cwd()
+
+# ── 3. 审批策略改为 ask ────────────────────────────────────────────────
+#    官方默认 "danger-full-access → policy: never → reject" 会在 decide() 里
+#    直接 fail-closed。改成 ask 后走 approval/request waterfall，由
+#    lib/index.js 注册的应答器一律返回 allowed-once。
+- id: approval
+  config:
+    policy: ask
+
+# ── 4. 让 (danger-full-access, ask) 成为合法预设 ───────────────────────
+#    permission 服务在构造时用当前 sandbox mode + approval policy 推导默认
+#    预设；官方表里 danger-full-access 对应 approval: never，会推导成 "custom"
+#    并抛错。这里重定义预设表并显式指定 defaultPreset。
+- id: permission
+  config:
+    defaultPreset: danger-full-access
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+        name: read-only
+        description: "Read-only workspace access; mutations denied."
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+        name: workspace-write
+        description: "Write inside the workspace and temp areas; wider retries require approval."
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: ask
+        name: danger-full-access
+        description: "Full file access; approval requests are auto-granted by dsh-po."
+
+# ── 5. 结果截断上限拉满：spill 与 pruner 阈值放大到实际永不触发 ─────────
+- id: spill-policy
+  config:
+    maxInlineTokens: 1000000000
+- id: tool-result-pruner
+  config:
+    thresholdChars: 1000000000
+    headChars: 4096
+    tailChars: 1024
+
+# ── 6. 工作区指令文件上限放大；全文本会话搜索打开 ───────────────────────
+- id: agent-instructions
+  config:
+    maxBytes: 67108864
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: first-search
+
+# ── 7. 本插件本体行由 postinstall / 手动写入用户层 profile/cordis.patch.yml ──
+#    （bundle patch 只改已入队行，不重复 insert 本体行）
+
+# ─────────────────────────────────────────────────────────────────────────
+# 保留官方默认（不做覆盖）：
+#   - timeout-policy（工具 deadline）
+#   - bash-sandbox / pwsh-sandbox timeoutMs（60s）
+#   - tool-web searchTimeoutMs（60s）
+#   - web-fetch-http 全部上限（公网 unicast 防线、5MB/100k、30s、5 跳）
+#   - fs-observation-policy（写前必须读 + CAS）
+# ─────────────────────────────────────────────────────────────────────────

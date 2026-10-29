@@ -1,0 +1,49 @@
+{
+  "name": "dsh-po",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现）：config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写任何 @deepseek-ai 源文件。DeepSeek Harness jailbreak as a pure cordis plugin — no patching of @deepseek-ai packages.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-po": "bin/dsh-po.js"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/ensure-profile-bundle.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "install": {
+      "preferred": "tarball"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-plugins",
+    "deepseek-harness",
+    "jailbreak",
+    "prompt-inject",
+    "red-team",
+    "harness-security"
+  ],
+  "dshTarget": "0.2.1-rc.3"
+}
