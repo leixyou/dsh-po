@@ -45,6 +45,25 @@ bin/dsh-po.js     状态检查 CLI
 
 ## 安装
 
+### 官方 npm 源（推荐）
+
+```sh
+cd "$DSH_HOME/profiles/web"        # desktop: profiles/desktop
+pnpm add dsh-po
+# 或
+npm install dsh-po
+# 或让 dsh 自己解析包名
+"$DSH" plugin --profile web add dsh-po
+```
+
+装完补跑一次本体 insert（pnpm 11/12 默认跳过 postinstall）：
+
+```sh
+node node_modules/dsh-po/scripts/ensure-profile-bundle.mjs
+```
+
+### 本地路径安装
+
 装进你实际打开的宿主 profile（web 与 desktop 分开装）：
 
 ```sh
