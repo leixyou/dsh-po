@@ -105,6 +105,10 @@ node bin/dsh-po.js status
 3. 编辑该 profile 的 `cordis.patch.yml`，追加本体 insert（见 `scripts/profile-insert.js` 的 `INSERT_BLOCK`）
 4. 在 profile 目录跑 `pnpm install`，重启宿主
 
+## DeekSeek Harness上直接安装
+<img width="2560" height="1640" alt="image" src="https://github.com/user-attachments/assets/51cc209e-7b56-4ead-97d8-7ff01d63478a" />
+
+
 ## 配置
 
 本体行 config 支持：
