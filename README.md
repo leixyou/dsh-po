@@ -174,3 +174,53 @@ node node_modules/dsh-po/scripts/ensure-profile-bundle.mjs
 > desktop profile 由 Electron 应用独占管理，无法用 CLI 直接 dump；但加载器相同，
 > 且本插件不依赖版本号敏感的内部源码，仅用 `systemPrompt` / `approval` / `cordis`
 > 标准接口，因此 rc.2 / rc.3 及以上均适用（无源码补丁可被打断）。
+
+---
+
+## 版本自适应（v1.1）
+
+宿主升级后（如 0.2.1-rc.3 → rc.5）不需要改插件源码。`lib/harness.js` 在运行时直接读
+**正在运行的这套 DSH** 的安装内容，反推契约，不依赖版本号字符串：
+
+| 探测项 | 来源 | rc.3 → rc.5 的实际变化 |
+|---|---|---|
+| harness 版本 | `@deepseek-ai/dsh-base/package.json` | — |
+| bundle patch 集合 | profile `dsh.profile.bundles` → 各包 `dsh.bundle.patch`（string **或 string[]**） | `dsh-web-app` 现在是数组，带 `presets/*.patch.yml` |
+| entry id | bundle patch 的 `- id:` 条目（rc.5 实测 244 条） | **未变**：`approval` / `permission` / `tool-result-pruner` 仍是这三个 id |
+| 包名 | 同上 `name:` | **变了**：`dsh-approval`→`dsh-user-approval`，`dsh-permission`→`dsh-permission-presets`，`dsh-tool-result-pruner`→`dsh-compaction-tool-result-pruner` |
+| service 名 | 包源码 `super(ctx, "<name>")` | 未变（`systemPrompt` / `approval`） |
+| 审批事件 | 包源码里的 `"*/request"` 字面量 | 未变（`approval/request`） |
+| order 常量 | `dsh-system-prompt` 的 `SECTION_ORDERS` | 未变（`HARNESS_IDENTITY: -1e3`、`APPROVAL_POLICY: 115`） |
+
+三条兜底：自省命中 → 候选别名表 → 内置默认值。任一层失败都不会让插件不加载。
+
+### 另一个跨版本隐患：静态 inject
+
+旧版 profile 里的本体行写死了：
+
+```yaml
+- insert:
+    - id: dsh-po
+      name: dsh-po
+      inject: [ systemPrompt, tools ]   # ← 宿主服务改名/拆分时整插件不加载
+```
+
+v1.1 起不再写这一行，依赖由 `lib/index.js` 在运行时解析（`ctx.get()` → `ctx.inject()` →
+轮询兜底）。已安装的 profile 用 `dsh-po adapt` 一行清除。
+
+### 升级宿主后的标准动作
+
+```sh
+cd ~/Documents/DSHunlimited/dsh-po
+node bin/dsh-po.js status     # 看 entry id / service / 事件 / order 是否全部 OK
+node bin/dsh-po.js verify     # CI 用：未解析目标则退出码 1
+node bin/dsh-po.js adapt      # id 真被改名时重写本体 patch；顺手清静态 inject
+npm test                      # 含真实宿主自省用例
+```
+
+改完**完全退出并重启** dsh 宿主（web / desktop）才生效。
+
+### 已实测
+
+- `0.2.1-rc.5`（cordis 4.0.5，app.asar 18 MB，244 条 entry）：8 个逻辑目标全部 `OK`
+- rc.3 旧包名 / 未来改 id 两种形态由 `test/adapt.test.mjs` 覆盖

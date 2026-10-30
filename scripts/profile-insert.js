@@ -3,11 +3,16 @@ import path from "node:path";
 
 export const NAME = "dsh-po";
 
+// 注意：不再写 `inject: [systemPrompt, tools]`。
+// 静态 inject 在宿主服务改名/拆分时会让整个插件加载失败；依赖改由
+// lib/index.js 运行时解析（见 lib/targets.js）。升级宿主后由
+// migrateStaticInject() 清掉旧 profile 里遗留的这行。
+export const STATIC_INJECT_RE = /^\s*inject:\s*\[\s*systemPrompt\s*,\s*tools\s*\]\s*$/;
+
 export const INSERT_BLOCK = [
   "- insert:",
   "    - id: dsh-po",
   "      name: dsh-po",
-  "      inject: [systemPrompt, tools]",
   "      config:",
   "        enabled: true",
   "        verbose: false",
@@ -46,7 +51,31 @@ function isEffectivelyEmpty(text) {
   return false;
 }
 
+/**
+ * 清掉旧 profile 里 `inject: [systemPrompt, tools]` 这行。
+ * 该行写死了宿主服务名，是跨版本最容易炸的一环。
+ */
+export function migrateStaticInject(profileDir) {
+  const fp = path.join(profileDir, "cordis.patch.yml");
+  let text;
+  try { text = fs.readFileSync(fp, "utf8"); } catch { return { ok: false, changed: false, path: fp }; }
+  if (!text.split(/\r?\n/).some((line) => STATIC_INJECT_RE.test(line))) {
+    return { ok: true, changed: false, path: fp };
+  }
+  const out = [];
+  let inPo = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*-\s*(id|name):\s*dsh-po\s*$/.test(line)) inPo = true;
+    else if (inPo && /^\s*-\s*(id|name|insert):/.test(line) && !/dsh-po/.test(line)) inPo = false;
+    if (inPo && STATIC_INJECT_RE.test(line)) continue;
+    out.push(line);
+  }
+  fs.writeFileSync(fp, out.join("\n"), "utf8");
+  return { ok: true, changed: true, path: fp };
+}
+
 export function ensureProfileBodyInsert(profileDir) {
+  migrateStaticInject(profileDir);
   const fp = path.join(profileDir, "cordis.patch.yml");
   let text = "";
   try { text = fs.readFileSync(fp, "utf8"); } catch { text = ""; }

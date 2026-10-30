@@ -1,7 +1,7 @@
 {
   "name": "dsh-po",
-  "version": "1.0.1",
-  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现）：config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写任何 @deepseek-ai 源文件。DeepSeek Harness jailbreak as a pure cordis plugin — no patching of @deepseek-ai packages.",
+  "version": "1.1.0",
+  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现，跨版本自适应）：运行时自省宿主真实 entry id / 服务名 / 事件名 / order 常量，config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写任何 @deepseek-ai 源文件。DeepSeek Harness jailbreak as a pure cordis plugin with runtime host introspection — no patching of @deepseek-ai packages.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -19,7 +19,11 @@
     "README.md"
   ],
   "scripts": {
-    "postinstall": "node scripts/ensure-profile-bundle.mjs"
+    "postinstall": "node scripts/ensure-profile-bundle.mjs",
+    "status": "node bin/dsh-po.js status",
+    "verify": "node bin/dsh-po.js verify",
+    "adapt": "node scripts/resolve-patch.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dsh": {
     "bundle": {
@@ -27,6 +31,15 @@
     },
     "install": {
       "preferred": "tarball"
+    },
+    "compat": {
+      "strategy": "runtime-introspection",
+      "verified": [
+        "0.2.1-rc.3",
+        "0.2.1-rc.4",
+        "0.2.1-rc.5"
+      ],
+      "notes": "entry id / 包名 / service 名 / 事件名 / order 常量均从运行中宿主读取；自省失败时回退内置默认值。"
     }
   },
   "peerDependencies": {
@@ -45,5 +58,5 @@
     "red-team",
     "harness-security"
   ],
-  "dshTarget": "0.2.1-rc.3"
+  "dshTarget": ">=0.2.1-rc.3 <0.3.0"
 }
