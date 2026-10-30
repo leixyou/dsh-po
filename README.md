@@ -142,16 +142,9 @@ node bin/dsh-po.js status
         verbose: false
         prompt: ""          # 留空则用 lib/prompt-inject.md
         approvalContext: true
-        approvalMode: auto  # auto=审批自动放行（默认）；gated=人在环：高危操作弹官方审批卡片，操作者逐次放行/拒绝
         postPrompt: ""
         postPromptOrder: 9000
 ```
-
-### approvalMode：人在环审批（减少模型自我审查）
-
-- `auto`（默认）：审批请求一律自动放行，无卡片、无等待。
-- `gated`：应答器委托官方审批卡片——每个提权/高危操作在 UI 弹出「允许一次 / 拒绝」，操作者实时裁决；无 UI 的 headless 宿主 fail-closed。模型可见上下文同步切换为「裁决属于审批层与操作者，模型不要自我审查、直接产出操作并等待卡片」。
-- 切换方式：改 profile 层本体行 config 的 `approvalMode: gated` 后完全重启宿主。
 
 ## 已验证（本机 DeepSeek Harness 0.2.1-rc.3）
 
