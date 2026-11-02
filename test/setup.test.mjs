@@ -67,3 +67,55 @@ test("ensureProfileTranslateConfig: 无 dsh-po insert → ok=false", () => {
   assert.equal(r.ok, false);
   assert.match(r.reason, /insert/);
 });
+
+/* ── 暗语写入：rewrite.code ── */
+
+const { ensureProfileRewriteCode } = await import("../scripts/profile-insert.js");
+const { readDshPoConfig } = await import("../lib/profile-config.js");
+
+test("ensureProfileRewriteCode: 无 rewrite 时插入嵌套，并且能被解析回来", () => {
+  const dir = tmpProfile({ "cordis.patch.yml": INSERT_BLOCK });
+  const r = ensureProfileRewriteCode(dir, "#dshpo");
+  assert.equal(r.ok, true);
+  assert.equal(r.updated, true);
+
+  const read = readDshPoConfig(dir);
+  assert.equal(read.ok, true, read.reason || "");
+  assert.equal(read.config.rewrite.code, "#dshpo");
+
+  // 幂等
+  const again = ensureProfileRewriteCode(dir, "#dshpo");
+  assert.equal(again.updated, false);
+  const text = fs.readFileSync(path.join(dir, "cordis.patch.yml"), "utf8");
+  assert.equal((text.match(/code:/g) || []).length, 1);
+});
+
+test("ensureProfileRewriteCode: 已有 translate 配置不受影响", () => {
+  const dir = tmpProfile({ "cordis.patch.yml": INSERT_BLOCK });
+  ensureProfileTranslateConfig(dir, { enabled: true, key: "KEY123", region: "eastasia" });
+  ensureProfileRewriteCode(dir, "#dshpo");
+
+  const read = readDshPoConfig(dir);
+  assert.equal(read.config.rewrite.code, "#dshpo");
+  assert.equal(read.config.rewrite.translate.key, "KEY123");
+  assert.equal(read.config.rewrite.translate.region, "eastasia");
+  assert.equal(read.config.rewrite.translate.enabled, true);
+});
+
+test("ensureProfileRewriteCode: 换暗语只改值", () => {
+  const dir = tmpProfile({ "cordis.patch.yml": INSERT_BLOCK });
+  ensureProfileRewriteCode(dir, "#dshpo");
+  const r = ensureProfileRewriteCode(dir, "##go");
+  assert.equal(r.updated, true);
+  assert.equal(readDshPoConfig(dir).config.rewrite.code, "##go");
+  assert.equal((fs.readFileSync(path.join(dir, "cordis.patch.yml"), "utf8").match(/code:/g) || []).length, 1);
+});
+
+test("ensureProfileRewriteCode: 没有 dsh-po insert 时不动文件", () => {
+  const dir = tmpProfile({ "cordis.patch.yml": "- id: ui-chat\n  config:\n    transcriptView: standard\n" });
+  const before = fs.readFileSync(path.join(dir, "cordis.patch.yml"), "utf8");
+  const r = ensureProfileRewriteCode(dir, "#dshpo");
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /dsh-po/);
+  assert.equal(fs.readFileSync(path.join(dir, "cordis.patch.yml"), "utf8"), before);
+});

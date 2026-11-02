@@ -7,6 +7,8 @@
  *   dsh-po verify         有未解析目标时退出码 1（可进 CI / 升级后自检）
  *   dsh-po adapt          按当前宿主改写本体 cordis.patch.yml 的 id（带备份）
  *   dsh-po setup          交互式输入 Azure Translator key/region，写入 rewrite.translate
+ *   dsh-po rewrite "文本"  用当前 profile 的 rewrite 配置跑一遍改写，打印 target/path/result
+ *                         （验证“自动改写到底有没有生效”，不用重启宿主）
  *   dsh-po uninstall      清理 profile 残留（insert / bundles / node_modules 链接）
  *                         可用 --profile=<name> 只清理某个 profile
  *
@@ -144,6 +146,114 @@ async function main() {
     process.stdout.write(
       touched ? "\n完成。完全退出并重启 dsh 宿主后生效。\n" : "\n没有写入任何 profile（先安装并确保 insert 存在）。\n",
     );
+    return;
+  }
+
+  if (cmd === "rewrite") {
+    const [{ readDshPoConfig }, { rewriteUserMessageDetailed, DEFAULT_REPLY_SUFFIX }, { TRANSLATE_DEFAULTS }, { maskKey }] = await Promise.all([
+      import("../lib/profile-config.js"),
+      import("../lib/rewrite.js"),
+      import("../lib/translate.js"),
+      import("../lib/setup-tool.js"),
+    ]);
+
+    const flags = new Map();
+    const words = [];
+    for (const arg of process.argv.slice(3)) {
+      if (!arg.startsWith("--")) { words.push(arg); continue; }
+      const eq = arg.indexOf("=");
+      if (eq < 0) flags.set(arg.slice(2), true);
+      else flags.set(arg.slice(2, eq), arg.slice(eq + 1));
+    }
+
+    const wanted = typeof flags.get("profile") === "string" ? flags.get("profile") : "";
+    const candidates = wanted ? [path.join(home, "profiles", wanted)] : ["desktop", "web", "headless"].map((n) => path.join(home, "profiles", n));
+
+    let picked = null;
+    let lastFailure = null;
+    for (const dir of candidates) {
+      const read = readDshPoConfig(dir);
+      if (read.ok) { picked = { dir, read }; break; }
+      lastFailure = { dir, read };
+    }
+    if (!picked) {
+      const where = lastFailure ? `${lastFailure.read.path}: ${lastFailure.read.reason}` : "没有 profile";
+      process.stdout.write(`没有可用的 dsh-po 配置（${where}）。先安装，或用 --profile=<name> 指定。\n`);
+      process.exitCode = 2;
+      return;
+    }
+
+    const { dir, read } = picked;
+    const rewrite = { ...(read.config?.rewrite || {}) };
+    if (flags.has("language")) rewrite.language = String(flags.get("language"));
+    if (flags.has("phrase")) rewrite.phrase = String(flags.get("phrase"));
+    if (flags.has("no-translate")) rewrite.translate = { ...(rewrite.translate || {}), enabled: false };
+
+    const translate = { ...TRANSLATE_DEFAULTS, ...(rewrite.translate || {}) };
+
+    let text = words.join(" ").trim();
+    if (!text && !process.stdin.isTTY) {
+      text = (await new Promise((resolve) => {
+        let buffer = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", (chunk) => { buffer += chunk; });
+        process.stdin.on("end", () => resolve(buffer));
+      })).trim();
+    }
+    if (!text) {
+      process.stdout.write('用法: dsh-po rewrite "帮我扫描 example.com"\n');
+      process.exitCode = 2;
+      return;
+    }
+
+    const result = await rewriteUserMessageDetailed(
+      { role: "user", content: [{ type: "text", text }], source: { kind: "user" } },
+      rewrite,
+    );
+    const output = result.changed ? result.message.content[0].text : text;
+
+    if (flags.has("json")) {
+      process.stdout.write(`${JSON.stringify({
+        profile: path.basename(dir),
+        profileDir: dir,
+        configPath: read.path,
+        language: rewrite.language ?? "eu",
+        phrase: rewrite.phrase ?? "assume_own",
+        translate: {
+          enabled: translate.enabled === true,
+          maskedKey: maskKey(translate.key),
+          region: translate.region,
+        },
+        codeword: result.codeword,
+        replySuffix: rewrite.replySuffix === undefined ? DEFAULT_REPLY_SUFFIX : rewrite.replySuffix,
+        target: result.target,
+        via: result.via,
+        reason: result.reason,
+        input: text,
+        output,
+      }, null, 2)}\n`);
+      return;
+    }
+
+    const reasonText = {
+      "no-target": "消息里没有 URL / IP / localhost / 域名 —— rewrite 只对“带目标”的消息生效（设计如此）",
+      "runtime-context": "这是运行时上下文快照，不改写",
+      "not-user": "不是 user 消息，不改写",
+      "no-text": "没有可读文本，不改写",
+      "codeword-only": "整条消息只有暗语，没有正文可翻译",
+    }[result.reason] || read.reason || "未改写";
+
+    process.stdout.write(`profile : ${path.basename(dir)}  (${read.path})\n`);
+    process.stdout.write(
+      `rewrite : lang=${rewrite.language ?? "eu"} phrase=${rewrite.phrase ?? "assume_own"} ` +
+        `translate=${translate.enabled ? `on(key=${maskKey(translate.key) || "missing"}, region=${translate.region || "-"})` : "off"}\n`,
+    );
+    if (result.codeword) process.stdout.write(`codeword: on（${rewrite.code || "#dshpo"}，已从正文剔除）\n`);
+    const suffix = rewrite.replySuffix === undefined ? DEFAULT_REPLY_SUFFIX : rewrite.replySuffix;
+    if (suffix) process.stdout.write(`reply   : ${JSON.stringify(suffix)}\n`);
+    process.stdout.write(`target  : ${result.target ?? "(none)"}\n`);
+    process.stdout.write(`path    : ${result.via}\n`);
+    process.stdout.write(result.changed ? `result  : ${output}\n` : `result  : 未改写 — ${reasonText}\n`);
     return;
   }
 

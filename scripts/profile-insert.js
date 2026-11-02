@@ -347,6 +347,50 @@ export function ensureProfileTranslateConfig(profileDir, translate) {
   return { ok: true, updated: true, path: fp };
 }
 
+/**
+ * 在 dsh-po insert 块里 upsert `rewrite.code`（暗语）。
+ *
+ * 幂等：已有 `code` 时只更新值，没有时插到 `rewrite:` 块末尾；不碰任何其它键。
+ * 值用 JSON 引号渲染，`#dshpo` 里的 `#` 不会被 YAML 当成注释。
+ *
+ * @param {string} profileDir profile 目录
+ * @param {string} code 暗语（空串表示关闭该特性）
+ * @returns {{ok: boolean, updated: boolean, path: string, code?: string, reason?: string}}
+ */
+export function ensureProfileRewriteCode(profileDir, code = "#dshpo") {
+  const fp = path.join(profileDir, "cordis.patch.yml");
+  let text;
+  try { text = fs.readFileSync(fp, "utf8"); } catch { return { ok: false, updated: false, path: fp, reason: "读取失败" }; }
+
+  const lines = String(text).split(/\r?\n/);
+  const cfg = findDshPoConfigLine(lines);
+  if (!cfg) {
+    return { ok: false, updated: false, path: fp, reason: "dsh-po insert 块或 config 不存在（先安装/补写 insert）" };
+  }
+
+  // 定位 / 插入 rewrite:
+  let cursor = cfg.index;
+  let rewriteIdx = findChildKey(lines, cursor, "rewrite");
+  if (rewriteIdx < 0) {
+    const at = insertAt(lines, cursor);
+    lines.splice(at, 0, `${" ".repeat(indentOf(lines[cursor]) + 2)}rewrite:`);
+    rewriteIdx = at;
+  }
+  cursor = rewriteIdx;
+
+  const rendered = `${" ".repeat(indentOf(lines[cursor]) + 2)}code: ${JSON.stringify(String(code))}`;
+  const existing = findChildKey(lines, cursor, "code");
+  if (existing >= 0) {
+    if (lines[existing] === rendered) return { ok: true, updated: false, path: fp, code: String(code) };
+    lines[existing] = rendered;
+  } else {
+    lines.splice(insertAt(lines, cursor), 0, rendered);
+  }
+
+  fs.writeFileSync(fp, `${lines.join("\n")}\n`, "utf8");
+  return { ok: true, updated: true, path: fp, code: String(code) };
+}
+
 export function findProfileDir() {
   const seeds = [process.env.INIT_CWD, process.env.npm_config_local_prefix, process.cwd()].filter(Boolean);
   for (const seed of seeds) {
