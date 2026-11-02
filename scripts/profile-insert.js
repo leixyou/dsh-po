@@ -111,6 +111,242 @@ export function ensureProfileBundles(profileDir) {
   return { ok: true, wrote: true, path: fp };
 }
 
+/** 从 cordis.patch.yml 删除 dsh-po 本体 insert。 */
+export function removeProfileBodyInsert(profileDir) {
+  const fp = path.join(profileDir, "cordis.patch.yml");
+  let text;
+  try { text = fs.readFileSync(fp, "utf8"); } catch { return { ok: false, removed: false, path: fp }; }
+
+  const lines = String(text).split(/\r?\n/);
+  const indentOf = (line) => (line.match(/^[ \t]*/) || [""])[0].length;
+  const isInsertLine = (line) => /^\s*-\s*insert:\s*$/.test(line);
+  const isEntryIdLine = (line) => /^\s*-\s*id:\s*["']?[^"'\s#]+["']?/.test(line);
+  const keep = new Array(lines.length).fill(true);
+  let removedAny = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!isInsertLine(lines[i])) continue;
+    const insertIndent = indentOf(lines[i]);
+
+    // 找到该 insert 块内第一条 `- id:`，确定条目缩进；同时找块结束位置。
+    let entryIndent = -1;
+    let blockEnd = lines.length;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const ind = indentOf(line);
+      if (ind <= insertIndent) { blockEnd = j; break; }
+      if (entryIndent < 0 && isEntryIdLine(line)) entryIndent = ind;
+    }
+    if (entryIndent < 0) continue;
+
+    // 逐条目扫描；dsh-po 条目的整段行标记为删除。
+    for (let k = i + 1; k < blockEnd; ) {
+      const line = lines[k];
+      if (!line.trim()) { k += 1; continue; }
+      if (indentOf(line) !== entryIndent || !isEntryIdLine(line)) { k += 1; continue; }
+      let end = k + 1;
+      while (end < blockEnd) {
+        const el = lines[end];
+        if (el.trim() && indentOf(el) === entryIndent && isEntryIdLine(el)) break;
+        end += 1;
+      }
+      const entryText = lines.slice(k, end).join("\n");
+      if (/^[ \t]*-\s*(?:id|name):\s*dsh-po\s*$/m.test(entryText)) {
+        for (let x = k; x < end; x += 1) keep[x] = false;
+        removedAny = true;
+      }
+      k = end;
+    }
+  }
+
+  if (!removedAny) return { ok: true, removed: false, path: fp };
+
+  // 重建：删掉已标记行；删掉因此变空的 `- insert:` 行并清理相邻空行。
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (isInsertLine(line)) {
+      const insertIndent = indentOf(line);
+      let hasKeptEntry = false;
+      for (let j = i + 1; j < lines.length; j += 1) {
+        const el = lines[j];
+        if (!el.trim()) continue;
+        const ind = indentOf(el);
+        if (ind <= insertIndent) break;
+        if (isEntryIdLine(el) && keep[j]) { hasKeptEntry = true; break; }
+      }
+      if (!hasKeptEntry) {
+        while (out.length > 0 && out[out.length - 1].trim() === "") out.pop();
+        continue;
+      }
+    }
+    if (!keep[i]) continue;
+    if (line.trim() === "" && out.length > 0 && out[out.length - 1].trim() === "") continue;
+    out.push(line);
+  }
+  while (out.length > 0 && out[out.length - 1].trim() === "") out.pop();
+
+  fs.writeFileSync(fp, `${out.join("\n")}${out.length ? "\n" : ""}`, "utf8");
+  return { ok: true, removed: true, path: fp };
+}
+
+/** 从 package.json 的 dsh.profile.bundles 移除 dsh-po。 */
+export function removeProfileBundles(profileDir) {
+  const fp = path.join(profileDir, "package.json");
+  const pkg = readJson(fp);
+  if (!pkg) return { ok: false, removed: false, path: fp };
+  pkg.dsh = pkg.dsh && typeof pkg.dsh === "object" ? pkg.dsh : {};
+  pkg.dsh.profile = pkg.dsh.profile && typeof pkg.dsh.profile === "object" ? pkg.dsh.profile : {};
+  const bundles = Array.isArray(pkg.dsh.profile.bundles) ? pkg.dsh.profile.bundles : [];
+  if (!bundles.includes(NAME)) return { ok: true, removed: false, path: fp };
+  pkg.dsh.profile.bundles = bundles.filter((b) => b !== NAME);
+  fs.writeFileSync(fp, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+  return { ok: true, removed: true, path: fp };
+}
+
+/** 清理 node_modules 里遗留的 dsh-po 链接 / .bin shim。 */
+export function removeStaleLinks(profileDir) {
+  const nodeModules = path.join(profileDir, "node_modules");
+  const targets = [
+    path.join(nodeModules, NAME),
+    path.join(nodeModules, ".bin", NAME),
+    path.join(nodeModules, ".bin", "dsh-purge-nopatch"), // 旧版遗留
+  ];
+  let removed = 0;
+  for (const target of targets) {
+    try {
+      const st = fs.lstatSync(target);
+      if (st.isSymbolicLink() || st.isFile()) {
+        fs.rmSync(target, { force: true });
+        removed += 1;
+      }
+    } catch { /* 不存在或不可访问，跳过 */ }
+  }
+  return removed;
+}
+
+/* ───────────────────────────── config upsert ───────────────────────────── */
+
+function indentOf(line) {
+  return (line.match(/^[ \t]*/) || [""])[0].length;
+}
+
+function renderYamlValue(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "boolean" || typeof value === "number") return String(value);
+  return JSON.stringify(String(value));
+}
+
+/** 找到 dsh-po 条目内 `config:` 行（块形式），返回 { index, indent } 或 null。 */
+function findDshPoConfigLine(lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/^\s*-\s*(id|name):\s*dsh-po\s*$/.test(lines[i])) continue;
+    const entryIndent = indentOf(lines[i]);
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const ind = indentOf(line);
+      if (ind <= entryIndent) return null; // 条目结束，无 config
+      if (/^\s*config:\s*(#.*)?$/.test(line)) return { index: j, indent: ind };
+    }
+    return null;
+  }
+  return null;
+}
+
+/** 在当前块内查找子键（非空行、恰好 childIndent 缩进、以 `<name>:` 开头）。 */
+function findChildKey(lines, keyIndex, name) {
+  const keyIndent = indentOf(lines[keyIndex]);
+  const childIndent = keyIndent + 2;
+  const prefix = `${name}:`;
+  for (let i = keyIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = indentOf(line);
+    if (ind <= keyIndent) return -1;
+    if (ind === childIndent && line.trimStart().startsWith(prefix)) return i;
+  }
+  return -1;
+}
+
+/** 子块末尾插入位置：最后一个子行之后（避免插到尾部空行后面）。 */
+function insertAt(lines, keyIndex) {
+  const keyIndent = indentOf(lines[keyIndex]);
+  let lastChild = -1;
+  for (let i = keyIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (indentOf(line) <= keyIndent) break;
+    lastChild = i;
+  }
+  return lastChild >= 0 ? lastChild + 1 : keyIndex + 1;
+}
+
+/**
+ * 在 dsh-po insert 块的 config 下 upsert `rewrite.translate` 叶子键。
+ * 幂等：已存在的键更新，不存在的插入；不会删掉其它 config 键。
+ * @returns { ok, updated, path, reason? }
+ */
+export function ensureProfileTranslateConfig(profileDir, translate) {
+  const fp = path.join(profileDir, "cordis.patch.yml");
+  let text;
+  try { text = fs.readFileSync(fp, "utf8"); } catch { return { ok: false, updated: false, path: fp, reason: "读取失败" }; }
+
+  const lines = String(text).split(/\r?\n/);
+  const cfg = findDshPoConfigLine(lines);
+  if (!cfg) {
+    return { ok: false, updated: false, path: fp, reason: "dsh-po insert 块或 config 不存在（先安装/补写 insert）" };
+  }
+
+  // 定位 / 插入 rewrite: → translate:
+  let cursor = cfg.index;
+  for (const seg of ["rewrite", "translate"]) {
+    let idx = findChildKey(lines, cursor, seg);
+    if (idx < 0) {
+      const at = insertAt(lines, cursor);
+      const line = `${" ".repeat(indentOf(lines[cursor]) + 2)}${seg}:`;
+      lines.splice(at, 0, line);
+      idx = at;
+    }
+    cursor = idx;
+  }
+
+  // 叶子键 upsert
+  const leafIndent = indentOf(lines[cursor]) + 2;
+  const keyIndent = indentOf(lines[cursor]);
+  let blockEnd = lines.length;
+  for (let i = cursor + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (indentOf(line) <= keyIndent) { blockEnd = i; break; }
+  }
+
+  const existing = new Map();
+  for (let i = cursor + 1; i < blockEnd; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (indentOf(line) === leafIndent) {
+      const m = /^\s*([A-Za-z0-9_$.-]+):/.exec(line);
+      if (m) existing.set(m[1], i);
+    }
+  }
+
+  const toInsert = [];
+  for (const [k, v] of Object.entries(translate || {})) {
+    const rendered = `${" ".repeat(leafIndent)}${k}: ${renderYamlValue(v)}`;
+    if (existing.has(k)) lines[existing.get(k)] = rendered;
+    else toInsert.push(rendered);
+  }
+  if (toInsert.length) {
+    const at = insertAt(lines, cursor);
+    lines.splice(at, 0, ...toInsert);
+  }
+
+  fs.writeFileSync(fp, `${lines.join("\n")}\n`, "utf8");
+  return { ok: true, updated: true, path: fp };
+}
+
 export function findProfileDir() {
   const seeds = [process.env.INIT_CWD, process.env.npm_config_local_prefix, process.cwd()].filter(Boolean);
   for (const seed of seeds) {

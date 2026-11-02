@@ -6,6 +6,9 @@
  *   dsh-po status         显示宿主自省结果 + 各逻辑目标解析到的 entry id
  *   dsh-po verify         有未解析目标时退出码 1（可进 CI / 升级后自检）
  *   dsh-po adapt          按当前宿主改写本体 cordis.patch.yml 的 id（带备份）
+ *   dsh-po setup          交互式输入 Azure Translator key/region，写入 rewrite.translate
+ *   dsh-po uninstall      清理 profile 残留（insert / bundles / node_modules 链接）
+ *                         可用 --profile=<name> 只清理某个 profile
  *
  * 与旧版的区别：不再用 grep 猜用户层 patch 是否含 `danger-full-access`，
  * 而是直接读运行中宿主的 bundle patch，判断每个覆盖目标是否真实存在。
@@ -80,9 +83,70 @@ function selfPatchTargets() {
   return { ok: true, entries };
 }
 
+/** 交互式提问（仅 TTY；非 TTY 返回空串）。secret=true 时回显 *。 */
+function ask(prompt, { secret = false } = {}) {
+  return new Promise((resolve) => {
+    const { stdin, stdout } = process;
+    if (!stdin.isTTY || !stdout.isTTY) { resolve(""); return; }
+    stdin.resume();
+    stdin.setRawMode(true);
+    stdout.write(prompt);
+    let buf = "";
+    const onData = (chunk) => {
+      for (const ch of chunk.toString("utf8")) {
+        const code = ch.charCodeAt(0);
+        if (code === 3) { stdout.write("^C\n"); process.exit(130); }
+        if (code === 13 || code === 10) {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdout.write("\n");
+          stdin.off("data", onData);
+          resolve(buf.trim());
+          return;
+        }
+        if (code === 127 || code === 8) {
+          if (buf.length) { buf = buf.slice(0, -1); stdout.write("\b \b"); }
+          continue;
+        }
+        buf += ch;
+        stdout.write(secret ? "*" : ch);
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 async function main() {
   const cmd = process.argv[2] || "status";
   const home = findDshHome();
+
+  if (cmd === "setup") {
+    const { ensureProfileTranslateConfig } = await import("../scripts/profile-insert.js");
+    const key = await ask("Azure Translator key（回车跳过）: ", { secret: true });
+    if (!key) {
+      process.stdout.write("未输入 key，未做改动。\n");
+      return;
+    }
+    const region = (await ask("region [global]: ")) || "global";
+    const targetArg = process.argv.find((a) => a.startsWith("--profile="));
+    const wanted = targetArg ? targetArg.slice("--profile=".length) : "";
+    let touched = false;
+    for (const dir of profiles(home)) {
+      if (wanted && path.basename(dir) !== wanted) continue;
+      const r = ensureProfileTranslateConfig(dir, { enabled: true, key, region });
+      if (r.ok && r.updated) {
+        touched = true;
+        process.stdout.write(`  ${path.basename(dir)}: 已写入 rewrite.translate（enabled=true, region=${region}）\n`);
+      } else {
+        process.stdout.write(`  ${path.basename(dir)}: ${r.reason || "未更新"}\n`);
+      }
+    }
+    process.stdout.write(
+      touched ? "\n完成。完全退出并重启 dsh 宿主后生效。\n" : "\n没有写入任何 profile（先安装并确保 insert 存在）。\n",
+    );
+    return;
+  }
+
   const intro = introspect({ fresh: true });
   const plan = resolveTargets(intro);
 
@@ -163,6 +227,28 @@ async function main() {
         process.stdout.write(`  ${path.basename(dir)}: insert 失败 ${(error && error.message) || error}\n`);
       }
     }
+  }
+
+  if (cmd === "uninstall" || cmd === "remove") {
+    const { removeProfileBodyInsert, removeProfileBundles, removeStaleLinks } = await import("../scripts/profile-insert.js");
+    const targetArg = process.argv.find((a) => a.startsWith("--profile="));
+    const wanted = targetArg ? targetArg.slice("--profile=".length) : "";
+    let touched = false;
+    for (const dir of profiles(home)) {
+      if (wanted && path.basename(dir) !== wanted) continue;
+      const bundles = removeProfileBundles(dir);
+      if (bundles.removed) { touched = true; process.stdout.write(`  ${path.basename(dir)}: removed from bundles\n`); }
+      try {
+        const insert = removeProfileBodyInsert(dir);
+        if (insert.removed) { touched = true; process.stdout.write(`  ${path.basename(dir)}: removed body insert\n`); }
+      } catch (error) {
+        process.stdout.write(`  ${path.basename(dir)}: insert 删除失败 ${(error && error.message) || error}\n`);
+      }
+      const links = removeStaleLinks(dir);
+      if (links > 0) { touched = true; process.stdout.write(`  ${path.basename(dir)}: removed ${links} stale link(s)\n`); }
+    }
+    process.stdout.write(touched ? "\n清理完成。完全退出并重启 dsh 宿主后生效。\n" : "\n没有需要清理的残留。\n");
+    return;
   }
 
   if (cmd === "verify") {

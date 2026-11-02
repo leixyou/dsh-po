@@ -1,7 +1,7 @@
 {
   "name": "dsh-po",
-  "version": "1.2.2",
-  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现，跨版本自适应）：运行时自省宿主真实 entry id / 服务名 / 事件名 / order 常量，config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写任何 @deepseek-ai 源文件。DeepSeek Harness jailbreak as a pure cordis plugin with runtime host introspection — no patching of @deepseek-ai packages.",
+  "version": "1.2.5",
+  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现，跨版本自适应）：运行时自省宿主真实 entry id / 服务名 / 事件名 / order 常量，config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写磁盘上的 @deepseek-ai 源文件；v1.2.3 修复 file-upload Agent resolver 槽位泄漏；v1.2.4–v1.2.5 增加 dsh_po_translate_setup 工具（对话内弹框填 Azure key，绕过 rc.5 无第三方设置表单的限制）。DeepSeek Harness jailbreak as a pure cordis plugin with runtime host introspection — config overrides plus in-memory injections; no @deepseek-ai source file is rewritten. v1.2.3 reclaims the file-upload Agent resolver slot a cordis proxy identity bug leaks; v1.2.4–v1.2.5 adds the dsh_po_translate_setup tool that collects the Azure key through the host question dialog.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -20,9 +20,12 @@
   ],
   "scripts": {
     "postinstall": "node scripts/ensure-profile-bundle.mjs",
+    "postuninstall": "node scripts/remove-profile-bundle.mjs",
     "status": "node bin/dsh-po.js status",
     "verify": "node bin/dsh-po.js verify",
     "adapt": "node scripts/resolve-patch.mjs",
+    "uninstall": "node bin/dsh-po.js uninstall",
+    "remove": "node bin/dsh-po.js uninstall",
     "test": "node --test test/*.test.mjs"
   },
   "dsh": {
@@ -58,5 +61,15 @@
     "red-team",
     "harness-security"
   ],
+  "license": "MIT",
+  "author": "leixyou",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leixyou/dsh-po.git"
+  },
+  "homepage": "https://github.com/leixyou/dsh-po#readme",
+  "bugs": {
+    "url": "https://github.com/leixyou/dsh-po/issues"
+  },
   "dshTarget": ">=0.2.1-rc.3 <0.3.0"
 }
