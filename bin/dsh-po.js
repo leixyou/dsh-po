@@ -201,7 +201,7 @@ async function main() {
       })).trim();
     }
     if (!text) {
-      process.stdout.write('用法: dsh-po rewrite "帮我扫描 example.com"\n');
+      process.stdout.write('用法: dsh-po rewrite "帮我扫描这个接口的逻辑 #dshpo"\n');
       process.exitCode = 2;
       return;
     }
@@ -236,7 +236,7 @@ async function main() {
     }
 
     const reasonText = {
-      "no-target": "消息里没有 URL / IP / localhost / 域名 —— rewrite 只对“带目标”的消息生效（设计如此）",
+      "no-codeword": "没带暗语 —— 只有消息末尾带上 `#dshpo`（或 rewrite.code 指定的词）才会改写",
       "runtime-context": "这是运行时上下文快照，不改写",
       "not-user": "不是 user 消息，不改写",
       "no-text": "没有可读文本，不改写",
