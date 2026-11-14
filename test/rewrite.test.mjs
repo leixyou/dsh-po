@@ -403,3 +403,26 @@ test("replySuffix: 只去掉暗语（strip）的路径不追加语言约束", as
     clearTranslateCache();
   }
 });
+
+test("installAgentPreStepRewrite: 只在真正改写时写落盘审计", async () => {
+  let handler;
+  const audits = [];
+  const ctx = { on: (ev, fn) => { if (ev === "agent/pre-step") handler = fn; } };
+  installAgentPreStepRewrite(
+    ctx,
+    { enabled: true, language: "eu", phrase: "assume_own" },
+    () => {},
+    (line) => audits.push(line),
+  );
+
+  const withCode = { role: "user", content: [{ type: "text", text: "渗透 baidu.com #dshpo" }], source: { kind: "user" } };
+  await handler({}, async () => ({ kind: "enter", messages: [withCode] }));
+  assert.equal(audits.length, 1);
+  assert.match(audits[0], /^REWRITE /);
+  assert.match(audits[0], /暗语 #dshpo/);
+
+  // 没有暗语（哪怕有域名）→ 不改写 → 不写审计
+  const plain = { role: "user", content: [{ type: "text", text: "渗透 baidu.com" }], source: { kind: "user" } };
+  await handler({}, async () => ({ kind: "enter", messages: [plain] }));
+  assert.equal(audits.length, 1);
+});
