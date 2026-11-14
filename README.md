@@ -439,7 +439,7 @@ runtime context 不一样，它**每一步都重新投影**（最直接的证据
 - 消息里的 URL / 域名保持原样（只改变句式与语言，不替换目标）；
 - 没有 Azure key 时 `translate` 直接返回 `null`，静默回退手写模板。
 
-## 已验证（DeepSeek Harness 0.2.1-rc.3 / rc.4 / rc.5）
+## 已验证（DeepSeek Harness 0.2.1-rc.3 / rc.4 / rc.5 / 0.2.2-rc.3）
 
 在官方 `DeepSeek Harness.app` 的 CLI 与桌面版上实际验证通过：
 
@@ -542,6 +542,10 @@ cordis 的服务是 traceable proxy：`ctx.fileUploads` 读函数属性时会用
 原函数**，disposer 里的 `===` 恒为 false —— 槽位永远清不掉。第一次重启之后
 就成了「幽灵 resolver」，之后每次重启都直接失败。
 
+> **0.2.2-rc.3 起已由宿主修复**：槽位改成 `this.agentResolution.resolver`（普通对象属性，
+> 不再被 traceable proxy 每次包一层），身份比较恢复可靠。本补丁检测到实现已变会**自动让位**，
+> 不覆盖官方实现 —— 除非宿主将来又回退到已知缺陷版本。
+
 **修复**：`lib/host-shims.js` 在内存里把 `FileUploads.prototype.registerAgentResolver`
 换成等价实现：
 
@@ -567,5 +571,13 @@ npm test                      # 含真实宿主自省用例
 
 ### 已实测
 
+- `0.2.2-rc.3`（app.asar 同路径，**259 条 entry**）：8 个逻辑目标全部 `OK`；
+  `systemPrompt.section()/context()`、`agent/pre-step`（fallback 仍返回 `{kind:"enter", messages}`）
+  契约未变 —— 破甲正文（section + context）、审批上下文、`agent/pre-step` 改写全部正常注入，
+  `prompt section presence check: true`。
+- `0.2.2-rc.3` 起宿主把 file-upload 的 resolver 槽位从 `this.agentResolver` 换成了
+  `this.agentResolution.resolver`，本文档记录的 traceable 身份问题不复存在 → 本插件的补丁
+  **按设计自动让位**（不打补丁、不报错），日志里是
+  `file-upload Agent resolver implementation is not the known buggy one; shim skipped`。
 - `0.2.1-rc.5`（cordis 4.0.5，app.asar 18 MB，244 条 entry）：8 个逻辑目标全部 `OK`
 - rc.3 旧包名 / 未来改 id 两种形态由 `test/adapt.test.mjs` 覆盖
