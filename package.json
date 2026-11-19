@@ -1,7 +1,7 @@
 {
   "name": "dsh-po",
-  "version": "1.4.1",
-  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现，跨版本自适应）：运行时自省宿主真实 entry id / 服务名 / 事件名 / order 常量，config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写磁盘上的 @deepseek-ai 源文件；v1.2.3 修复 file-upload Agent resolver 槽位泄漏；v1.2.4–v1.2.5 增加 dsh_po_translate_setup 工具（对话内弹框填 Azure key，绕过 rc.5 无第三方设置表单的限制）；v1.4.1 验证适配 DSH 0.2.2-rc.3（host 已修 file-upload 槽位，补丁自动让位）；v1.4.0 起改写只由消息末尾暗语触发（不再按 URL/IP/域名 自动改写）；v1.3.0 修掉 HMR 重组后破甲正文静默丢失（改成按实例状态 + system-prompt/change 自愈），新增 `promptPlacement`（section/context/both：旧会话也能吃到正文）、消息末尾暗语 `#dshpo`（无条件翻译并剔除）、`rewrite.replySuffix` 输出语言约束（默认要求中文回答）、`dsh-po rewrite` 自检命令与 `~/.dsh/dsh-po.log` 落盘诊断。DeepSeek Harness jailbreak as a pure cordis plugin with runtime host introspection — config overrides plus in-memory injections; no @deepseek-ai source file is rewritten. v1.2.3 reclaims the file-upload Agent resolver slot a cordis proxy identity bug leaks; v1.2.4–v1.2.5 adds the dsh_po_translate_setup tool that collects the Azure key through the host question dialog; v1.3.0 makes the prompt section survive HMR recompose via per-instance state and self-heal on system-prompt/change, and adds promptPlacement (section/context/both so already-running sessions receive the prompt), a trailing codeword `#dshpo` that forces translation and is stripped before sending, rewrite.replySuffix to pin the answer language, a `dsh-po rewrite` self-check CLI, and a `~/.dsh/dsh-po.log` diagnostic log.",
+  "version": "1.4.2",
+  "description": "DeepSeek Harness 破甲插件（纯 cordis 实现，跨版本自适应）：运行时自省宿主真实 entry id / 服务名 / 事件名 / order 常量，config 覆盖 + 运行时注入（approval 应答器 / systemPrompt section），不改写磁盘上的 @deepseek-ai 源文件；v1.2.3 修复 file-upload Agent resolver 槽位泄漏；v1.2.4–v1.2.5 增加 dsh_po_translate_setup 工具（对话内弹框填 Azure key，绕过 rc.5 无第三方设置表单的限制）；v1.4.2 验证适配 DSH 0.2.2-rc.5 并加 SLOW pre-step 性能诊断；v1.4.1 验证适配 DSH 0.2.2-rc.3（host 已修 file-upload 槽位，补丁自动让位）；v1.4.0 起改写只由消息末尾暗语触发（不再按 URL/IP/域名 自动改写）；v1.3.0 修掉 HMR 重组后破甲正文静默丢失（改成按实例状态 + system-prompt/change 自愈），新增 `promptPlacement`（section/context/both：旧会话也能吃到正文）、消息末尾暗语 `#dshpo`（无条件翻译并剔除）、`rewrite.replySuffix` 输出语言约束（默认要求中文回答）、`dsh-po rewrite` 自检命令与 `~/.dsh/dsh-po.log` 落盘诊断。DeepSeek Harness jailbreak as a pure cordis plugin with runtime host introspection — config overrides plus in-memory injections; no @deepseek-ai source file is rewritten. v1.2.3 reclaims the file-upload Agent resolver slot a cordis proxy identity bug leaks; v1.2.4–v1.2.5 adds the dsh_po_translate_setup tool that collects the Azure key through the host question dialog; v1.3.0 makes the prompt section survive HMR recompose via per-instance state and self-heal on system-prompt/change, and adds promptPlacement (section/context/both so already-running sessions receive the prompt), a trailing codeword `#dshpo` that forces translation and is stripped before sending, rewrite.replySuffix to pin the answer language, a `dsh-po rewrite` self-check CLI, and a `~/.dsh/dsh-po.log` diagnostic log.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -41,7 +41,8 @@
         "0.2.1-rc.3",
         "0.2.1-rc.4",
         "0.2.1-rc.5",
-        "0.2.2-rc.3"
+        "0.2.2-rc.3",
+        "0.2.2-rc.5"
       ],
       "notes": "entry id / 包名 / service 名 / 事件名 / order 常量均从运行中宿主读取；自省失败时回退内置默认值。"
     }

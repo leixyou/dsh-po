@@ -430,6 +430,43 @@ runtime context 不一样，它**每一步都重新投影**（最直接的证据
 排查“明明装好了却没效果”时，看这两条日志就够了；实在没有日志，就**完全退出并重启**宿主
 （system prompt 在每个会话开头一次性写进 history，会话中途再补也不会改已有会话）。
 
+### Windows 上「打字卡」怎么查（v1.4.2）
+
+先说结论：**dsh-po 不碰输入路径**。
+
+- 没有 client 端代码（不注册任何 UI/输入框插件）；
+- 没有常驻定时器 —— 只有启动期最多 10s 的服务轮询（找到服务就停），以及翻译请求的 5s 超时定时器；
+- 每步只多一个 `agent/pre-step` 钩子（改写/审计），你打字时它不运行。
+
+真正可能相关的只有两条：
+
+1. **每轮多注入 3.7KB**：`promptPlacement: both` 时 section 和 context 各一份正文
+   → 首 token 更慢、长会话更明显（Windows 机器弱一点时体感更强）；
+2. Windows + Electron 的 IME / 长文本渲染本身卡（与插件无关）。
+
+三步定位：
+
+```yaml
+# ① 关插件对照（最省事）：还卡就不是插件
+enabled: false
+
+# ② 只砍注入体积：去掉每轮的 context 块，只留 system prompt
+promptPlacement: section
+
+# ③ 不看插件改写（Windows 上通常也不用暗语）
+rewrite:
+  enabled: false
+```
+
+v1.4.2 起，单步耗时超过 `rewrite.slowMs`（默认 200ms）会往 `~/.dsh/dsh-po.log` 写：
+
+```text
+SLOW pre-step: total=350ms host=338ms plugin=12ms messages=14
+```
+
+`host` 是宿主自己的耗时，`plugin` 才是插件的 —— **有这行且 `plugin` 占比小，就说明不是 dsh-po 拖的**；
+想更敏感就把 `rewrite.slowMs` 调到 `50`。
+
 ### 行为边界
 
 - 只改写 `role === "user"` 且**末尾带暗语**的消息（没有暗语一律原样发送）；
@@ -439,7 +476,7 @@ runtime context 不一样，它**每一步都重新投影**（最直接的证据
 - 消息里的 URL / 域名保持原样（只改变句式与语言，不替换目标）；
 - 没有 Azure key 时 `translate` 直接返回 `null`，静默回退手写模板。
 
-## 已验证（DeepSeek Harness 0.2.1-rc.3 / rc.4 / rc.5 / 0.2.2-rc.3）
+## 已验证（DeepSeek Harness 0.2.1-rc.3 / rc.4 / rc.5 / 0.2.2-rc.3 / 0.2.2-rc.5）
 
 在官方 `DeepSeek Harness.app` 的 CLI 与桌面版上实际验证通过：
 
@@ -571,6 +608,9 @@ npm test                      # 含真实宿主自省用例
 
 ### 已实测
 
+- `0.2.2-rc.5`（app.asar 同路径，259 条 entry）：8 个逻辑目标全部 `OK`；
+  `systemPrompt.section()/context()`、`agent/pre-step`（`{kind:"enter", messages}`）、
+  `layers.global` 契约与 rc.3 一致，正文/审批/改写全部正常注入（`presence check: true`）。
 - `0.2.2-rc.3`（app.asar 同路径，**259 条 entry**）：8 个逻辑目标全部 `OK`；
   `systemPrompt.section()/context()`、`agent/pre-step`（fallback 仍返回 `{kind:"enter", messages}`）
   契约未变 —— 破甲正文（section + context）、审批上下文、`agent/pre-step` 改写全部正常注入，

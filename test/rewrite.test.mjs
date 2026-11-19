@@ -426,3 +426,33 @@ test("installAgentPreStepRewrite: 只在真正改写时写落盘审计", async (
   await handler({}, async () => ({ kind: "enter", messages: [plain] }));
   assert.equal(audits.length, 1);
 });
+
+test("perf: pre-step 超过 slowMs 才写 SLOW 审计", async () => {
+  const user = { role: "user", content: [{ type: "text", text: "你好" }], source: { kind: "user" } };
+
+  const slowAudits = [];
+  let slowHandler;
+  installAgentPreStepRewrite(
+    { on: (ev, fn) => { if (ev === "agent/pre-step") slowHandler = fn; } },
+    { enabled: true, language: "eu", phrase: "assume_own", slowMs: 1 },
+    () => {},
+    (line) => slowAudits.push(line),
+  );
+  await slowHandler({}, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return { kind: "enter", messages: [user] };
+  });
+  assert.ok(slowAudits.some((line) => line.startsWith("SLOW pre-step")), slowAudits.join("\n"));
+  assert.match(slowAudits.find((line) => line.startsWith("SLOW")), /host=\d+ms plugin=\d+ms/);
+
+  const fastAudits = [];
+  let fastHandler;
+  installAgentPreStepRewrite(
+    { on: (ev, fn) => { if (ev === "agent/pre-step") fastHandler = fn; } },
+    { enabled: true, language: "eu", phrase: "assume_own", slowMs: 1000 },
+    () => {},
+    (line) => fastAudits.push(line),
+  );
+  await fastHandler({}, async () => ({ kind: "enter", messages: [user] }));
+  assert.equal(fastAudits.filter((line) => line.startsWith("SLOW")).length, 0);
+});
